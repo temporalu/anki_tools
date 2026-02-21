@@ -6,15 +6,15 @@
 		<array>
 			<dict>
 				<key>Image File</key>
-				<string>anki.png</string>
+				<string>cam_dict_to_anki.png</string>
 				<key>Shell Script File</key>
-				<string>anki.sh</string>
+				<string>cam_dict_to_anki.sh</string>
 				<key>Regular Expression</key>
-				<string>(?s)^(\w+?\s*?){1,2}$</string>
+				<string>(?s)^.+$</string>
 				<key>Stoppable</key>
 				<true />
 				<key>Title</key>
-				<string>Anki</string>
+				<string>cam_dict_to_anki</string>
 				<key>After</key>
 				<string>show-status</string>
 			</dict>
@@ -115,9 +115,9 @@
 		<key>Extension Description</key>
 		<string>Create a new Anki Note with selected word.</string>
 		<key>Extension Identifier</key>
-		<string>blog.jingyi.anki</string>
+		<string>blog.jingyi.cam_dict_to_anki</string>
 		<key>Extension Name</key>
-		<string>Anki</string>
+		<string>cam_dict_to_anki</string>
 		<key>Required Software Version</key>
 		<integer>693</integer>
 	</dict>

@@ -23,15 +23,78 @@ else
     browser_source_html="<a href=\\\"${POPCLIP_BROWSER_URL}\\\">${POPCLIP_BROWSER_TITLE}</a>"
 fi
 
+url_encode()
+{
+    python3 - "$1" <<'PY'
+import sys
+from urllib.parse import quote
+
+text = sys.argv[1] if len(sys.argv) > 1 else ""
+print(quote(text, safe="-"))
+PY
+}
+
+update_entry()
+{
+    entry=$1
+    safe_entry=$entry
+}
+
+prompt_for_entry()
+{
+    local current=$1
+    local result
+    local status
+    result=$(
+/usr/bin/osascript - "$current" 2>/dev/null <<'APPLESCRIPT'
+on run argv
+    set currentText to item 1 of argv
+    tell application "System Events"
+        set frontApp to name of first application process whose frontmost is true
+    end tell
+    if frontApp is not "" then
+        tell application frontApp to activate
+    end if
+    set dialogResult to display dialog "请输入要查询的内容：" default answer currentText buttons {"取消", "确定"} default button "确定"
+    return text returned of dialogResult
+end run
+APPLESCRIPT
+)
+    status=$?
+    if [[ $status -ne 0 ]]; then
+        return 1
+    fi
+    result=$(printf '%s' "$result" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    if [[ -z "$result" ]]; then
+        return 1
+    fi
+    printf '%s' "$result"
+    return 0
+}
+
+has_option_key()
+{
+    local flags=${POPCLIP_MODIFIER_FLAGS:-0}
+    if [[ -z "$flags" ]]; then
+        echo "0"
+        return 0
+    fi
+    if (( (flags & 524288) != 0 )); then
+        echo "1"
+    else
+        echo "0"
+    fi
+}
+
 _cambridge()
 {
-    local safe_entry=$1
+    local raw_entry=$1
     python_script=$(cat <<'PY'
 import re
 import sys
 from html import unescape
 from html.parser import HTMLParser
-from urllib.parse import unquote, quote
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
@@ -201,48 +264,70 @@ def extract_defs(html):
 
 
 entry = sys.argv[1] if len(sys.argv) > 1 else ""
-raw = unquote(entry).strip()
+raw = entry.strip()
 normalized = re.sub(r"\s+", "-", raw.lower()).strip("-")
 candidates = []
 if normalized:
-    candidates.append((normalized, False))
+    candidates.append(normalized)
 if raw:
-    candidates.append((raw.lower(), False))
-if entry:
-    candidates.append((entry, "%" in entry))
+    candidates.append(raw.lower())
 
 output = ""
-for cand, encoded in candidates:
+had_error = False
+for cand in candidates:
     if not cand:
         continue
-    path = cand if encoded else quote(cand, safe="-")
+    path = quote(cand, safe="-")
     url = f"https://dictionary.cambridge.org/dictionary/english/{path}"
     try:
         req = Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en"})
         html = urlopen(req, timeout=20).read().decode("utf-8", errors="ignore")
     except Exception:
+        had_error = True
         continue
     output = extract_defs(html)
     if output:
         break
 if output:
     print(output)
+elif had_error:
+    print("__CAM_DICT_ERROR__")
+    sys.exit(2)
 PY
 )
-    python3 -c "$python_script" "$safe_entry"
+    python3 -c "$python_script" "$raw_entry"
 }
 
 look_up()
 {
-    local safe_entry=$1
-    definition=$(_cambridge "$safe_entry")
-
-    if [[ -z "$definition" ]]; then
-        echo "Word Not Found"
-        exit 1
-    else
-        echo "$definition"
-    fi
+    local definition
+    local attempts=0
+    local max_attempts=2
+    local allow_prompt=${1:-1}
+    while (( attempts < max_attempts )); do
+        definition=$(_cambridge "$entry")
+        status=$?
+        if (( status == 2 )); then
+            echo "查询 Cambridge 失败，请检查网络。"
+            return 1
+        fi
+        if [[ -n "$definition" ]]; then
+            echo "$definition"
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        if (( attempts >= max_attempts )); then
+            break
+        fi
+        if [[ "$allow_prompt" != "1" ]]; then
+            break
+        fi
+        new_entry=$(prompt_for_entry "$entry") || return 1
+        update_entry "$new_entry"
+        allow_prompt=0
+    done
+    echo "未找到释义。"
+    return 1
 }
 
 
@@ -427,7 +512,28 @@ check_result()
 main()
 {
     local definition
-    definition=$(look_up $safe_entry) || exit 1
+    local allow_prompt=1
+    if [[ "$(has_option_key)" == "1" ]]; then
+        new_entry=$(prompt_for_entry "$entry") || exit 1
+        update_entry "$new_entry"
+        allow_prompt=0
+    fi
+    definition=$(look_up "$allow_prompt")
+    status=$?
+    if (( status != 0 )); then
+        if [[ -n "$definition" ]]; then
+            echo "$definition"
+        else
+            echo "未找到释义。"
+        fi
+        if [[ -n "$entry" ]]; then
+            encoded=$(url_encode "$entry")
+            if [[ -n "$encoded" ]]; then
+                open "https://dictionary.cambridge.org/dictionary/english/$encoded" >/dev/null 2>&1
+            fi
+        fi
+        exit 1
+    fi
     if note_exists; then
         exit 0
     fi

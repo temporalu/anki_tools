@@ -1,4 +1,4 @@
-# Anki PopClip
+# cam_dict_to_anki PopClip
 
 ## Snippet Extension
 
@@ -12,7 +12,7 @@
 
 ```javascript
 // #popclip
-// name: Anki Q&A
+// name: cam_dict_to_anki Q&A
 // icon: svg:<svg viewBox="-18 80 80 81"><path d="M35 84c1 1 1 5 2 13 0 11 0 11 3 13 2 1 6 4 10 6s7 4 8 5c3 3 1 5-11 8-12 4-12 4-14 16l-4 13c-2 0-5-4-11-11-3-5-7-8-8-8l-10 0c-18 3-19 1-9-13 3-4 6-8 6-10l-5-11-4-11c0-3 5-3 15 1 5 2 10 3 11 2 1 0 5-3 9-7 8-8 10-9 12-6z" stroke="#00bfff" stroke-width="10" fill="none"/></svg>
 // description: Create Anki cards from text with customizable Q/A formats
 // options: [
@@ -107,15 +107,9 @@ A. 90m.
 
 安装及配置
 
-- 确认已安装 [Anki](https://apps.ankiweb.net/)
+- 确认已安装 Anki
 - 导入 [Default.apkg](https://github.com/cdpath/anki_tools/releases/download/v0.2.1/Default.apkg)
-- 确认已安装 [AnkiConnect](https://ankiweb.net/shared/info/2055492159)
-- 在 [Releases](https://github.com/cdpath/anki_tools/releases) 页面下载 anki.popclipextz
+- 确认已安装 AnkiConnect
+- 在 Release 页面下载 cam_dict_to_anki.popclipextz
 - 双击安装，因为没有签名会弹出警告，可忽略
-- 初次安装 anki extension 时会提示配置在线字典服务（彩云小译或有道词典），目标牌组（默认 `Default`）和笔记类型（默认 `PopClip`）
-
-翻译服务
-
-- 彩云小译 API 在[这里](https://dashboard.caiyunapp.com/user/sign_in/)申请
-- 有道词典解析的网页数据，不需要 API
-
+- 初次安装 cam_dict_to_anki extension 时会提示配置目标牌组（默认 `Default`）和笔记类型（默认 `PopClip`）
