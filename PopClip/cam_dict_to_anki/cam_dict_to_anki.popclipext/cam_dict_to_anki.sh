@@ -23,6 +23,9 @@ else
     browser_source_html="<a href=\\\"${POPCLIP_BROWSER_URL}\\\">${POPCLIP_BROWSER_TITLE}</a>"
 fi
 skip_open_on_fail=0
+user_cancelled=0
+LOOKUP_DEFINITION=
+LOOKUP_MESSAGE=
 
 url_encode()
 {
@@ -66,12 +69,10 @@ APPLESCRIPT
 )
     status=$?
     if [[ $status -ne 0 ]]; then
-        skip_open_on_fail=1
-        return 1
+        return 130
     fi
     result=$(printf '%s' "$result" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
     if [[ -z "$result" ]]; then
-        skip_open_on_fail=1
         return 1
     fi
     printf '%s' "$result"
@@ -310,15 +311,17 @@ look_up()
     local attempts=0
     local max_attempts=2
     local allow_prompt=${1:-1}
+    LOOKUP_DEFINITION=
+    LOOKUP_MESSAGE=
     while (( attempts < max_attempts )); do
         definition=$(_cambridge "$entry")
         status=$?
         if (( status == 2 )); then
-            echo "查询 Cambridge 失败，请检查网络。"
+            LOOKUP_MESSAGE="查询 Cambridge 失败，请检查网络。"
             return 1
         fi
         if [[ -n "$definition" ]]; then
-            echo "$definition"
+            LOOKUP_DEFINITION="$definition"
             return 0
         fi
         attempts=$((attempts + 1))
@@ -328,11 +331,19 @@ look_up()
         if [[ "$allow_prompt" != "1" ]]; then
             break
         fi
-        new_entry=$(prompt_for_entry "$entry") || return 1
+        new_entry=$(prompt_for_entry "$entry")
+        prompt_status=$?
+        if (( prompt_status != 0 )); then
+            skip_open_on_fail=1
+            if (( prompt_status == 130 )); then
+                user_cancelled=1
+            fi
+            return 1
+        fi
         update_entry "$new_entry"
         allow_prompt=0
     done
-    echo "未找到释义。"
+    LOOKUP_MESSAGE="未找到释义。"
     return 1
 }
 
@@ -520,19 +531,36 @@ main()
     local definition
     local allow_prompt=1
     if [[ "$(has_option_key)" == "1" ]]; then
-        new_entry=$(prompt_for_entry "$entry") || exit 1
+        new_entry=$(prompt_for_entry "$entry")
+        prompt_status=$?
+        if (( prompt_status != 0 )); then
+            skip_open_on_fail=1
+            if (( prompt_status == 130 )); then
+                user_cancelled=1
+            fi
+            exit 1
+        fi
         update_entry "$new_entry"
         allow_prompt=0
     fi
-    definition=$(look_up "$allow_prompt")
+    look_up "$allow_prompt"
     status=$?
+    definition=$LOOKUP_DEFINITION
+    message=$LOOKUP_MESSAGE
     if (( status != 0 )); then
+        if [[ "$user_cancelled" == "1" ]]; then
+            exit 1
+        fi
         if [[ -n "$definition" ]]; then
             echo "$definition"
         else
-            echo "未找到释义。"
+            if [[ -n "$message" ]]; then
+                echo "$message"
+            else
+                echo "未找到释义。"
+            fi
         fi
-        if [[ "$skip_open_on_fail" != "1" && -n "$entry" ]]; then
+        if [[ "$skip_open_on_fail" != "1" && "$user_cancelled" != "1" && -n "$entry" ]]; then
             encoded=$(url_encode "$entry")
             if [[ -n "$encoded" ]]; then
                 open "https://dictionary.cambridge.org/dictionary/english/$encoded" >/dev/null 2>&1
