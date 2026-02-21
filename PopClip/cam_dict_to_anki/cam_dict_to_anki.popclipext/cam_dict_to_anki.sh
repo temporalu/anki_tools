@@ -22,6 +22,7 @@ if [[ -z "$POPCLIP_BROWSER_URL" ]]; then
 else
     browser_source_html="<a href=\\\"${POPCLIP_BROWSER_URL}\\\">${POPCLIP_BROWSER_TITLE}</a>"
 fi
+skip_open_on_fail=0
 
 url_encode()
 {
@@ -56,16 +57,21 @@ on run argv
         tell application frontApp to activate
     end if
     set dialogResult to display dialog "请输入要查询的内容：" default answer currentText buttons {"取消", "确定"} default button "确定"
+    if button returned of dialogResult is "取消" then
+        error number -128
+    end if
     return text returned of dialogResult
 end run
 APPLESCRIPT
 )
     status=$?
     if [[ $status -ne 0 ]]; then
+        skip_open_on_fail=1
         return 1
     fi
     result=$(printf '%s' "$result" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
     if [[ -z "$result" ]]; then
+        skip_open_on_fail=1
         return 1
     fi
     printf '%s' "$result"
@@ -526,7 +532,7 @@ main()
         else
             echo "未找到释义。"
         fi
-        if [[ -n "$entry" ]]; then
+        if [[ "$skip_open_on_fail" != "1" && -n "$entry" ]]; then
             encoded=$(url_encode "$entry")
             if [[ -n "$encoded" ]]; then
                 open "https://dictionary.cambridge.org/dictionary/english/$encoded" >/dev/null 2>&1
