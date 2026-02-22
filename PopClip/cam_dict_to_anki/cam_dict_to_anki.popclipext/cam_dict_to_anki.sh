@@ -148,11 +148,11 @@ class CambridgeParser(HTMLParser):
             self.def_body_depth += 1
         if self.examp_depth > 0:
             self.examp_depth += 1
-        if self.pos_depth == 0 and "pos" in classes and "dpos" in classes:
+        if self.pos_depth == 0 and ("dpos" in classes or ("pos" in classes and "dpos" in classes)):
             self.pos_depth = 1
             self.pos_text = []
             return
-        if self.def_depth == 0 and "def" in classes and "ddef_d" in classes:
+        if self.def_depth == 0 and ("ddef_d" in classes or ("def" in classes and "ddef_d" in classes)):
             self.def_depth = 1
             self.def_text = []
             return
@@ -240,9 +240,32 @@ def clean(parts):
     return text
 
 
-def extract_defs(html):
+def extract_meta(html, entry):
+    m = re.search(r'<meta\\s+name=\"description\"\\s+content=\"([^\"]+)\"', html, re.IGNORECASE)
+    if not m:
+        return ""
+    text = unescape(m.group(1)).strip()
+    if not text:
+        return ""
+    entry_text = entry.strip().lower() if entry else ""
+    if entry_text and entry_text not in text.lower():
+        return ""
+    return (
+        '<div class="entry">'
+        '<h3 style="color: rgb(255, 56, 60);">definition</h3>'
+        '<ol><li>'
+        + text
+        + '</li></ol></div>'
+    )
+
+
+def extract_defs(html, entry):
     parser = CambridgeParser()
-    parser.feed(html)
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:
+        return extract_meta(html, entry)
     parts = []
     for pos in parser.order:
         defs = parser.defs.get(pos, [])
@@ -267,7 +290,9 @@ def extract_defs(html):
             parts.append('</li>')
         parts.append('</ol>')
         parts.append('</div>')
-    return "".join(parts)
+    if parts:
+        return "".join(parts)
+    return extract_meta(html, entry)
 
 
 entry = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -292,7 +317,7 @@ for cand in candidates:
     except Exception:
         had_error = True
         continue
-    output = extract_defs(html)
+    output = extract_defs(html, raw)
     if output:
         break
 if output:
@@ -302,7 +327,17 @@ elif had_error:
     sys.exit(2)
 PY
 )
-    python3 -c "$python_script" "$raw_entry"
+    local output
+    output=$(python3 -c "$python_script" "$raw_entry")
+    status=$?
+    if (( status == 2 )); then
+        printf '%s' "$output"
+        return 2
+    fi
+    if (( status != 0 )); then
+        return 3
+    fi
+    printf '%s' "$output"
 }
 
 look_up()
@@ -318,6 +353,10 @@ look_up()
         status=$?
         if (( status == 2 )); then
             LOOKUP_MESSAGE="查询 Cambridge 失败，请检查网络。"
+            return 1
+        fi
+        if (( status == 3 )); then
+            LOOKUP_MESSAGE="解析 Cambridge 失败，请稍后再试。"
             return 1
         fi
         if [[ -n "$definition" ]]; then
@@ -337,6 +376,9 @@ look_up()
             skip_open_on_fail=1
             if (( prompt_status == 130 )); then
                 user_cancelled=1
+                LOOKUP_MESSAGE="已取消查询。"
+            else
+                LOOKUP_MESSAGE="未输入查询词。"
             fi
             return 1
         fi
@@ -352,6 +394,40 @@ look_up()
 json_escape()
 {
     python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])'
+}
+
+anki_connect_available()
+{
+    local resp
+    resp=$(curl -s --max-time 2 -X POST -d '{"action":"version","version":6}' "http://localhost:8765")
+    [[ $resp == *'"error": null'* ]]
+}
+
+start_anki_app()
+{
+    if [[ -d "/Applications/Anki.app" ]]; then
+        open "/Applications/Anki.app" >/dev/null 2>&1
+    else
+        open -a "Anki" >/dev/null 2>&1
+    fi
+}
+
+ensure_anki_connect()
+{
+    if anki_connect_available; then
+        return 0
+    fi
+    start_anki_app
+    local attempts=0
+    local max_attempts=20
+    while (( attempts < max_attempts )); do
+        sleep 0.5
+        if anki_connect_available; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+    done
+    return 1
 }
 
 store_images()
@@ -537,6 +613,12 @@ main()
             skip_open_on_fail=1
             if (( prompt_status == 130 )); then
                 user_cancelled=1
+                message="已取消查询。"
+            else
+                message="未输入查询词。"
+            fi
+            if [[ -n "$message" ]]; then
+                echo "$message"
             fi
             exit 1
         fi
@@ -548,9 +630,6 @@ main()
     definition=$LOOKUP_DEFINITION
     message=$LOOKUP_MESSAGE
     if (( status != 0 )); then
-        if [[ "$user_cancelled" == "1" ]]; then
-            exit 1
-        fi
         if [[ -n "$definition" ]]; then
             echo "$definition"
         else
@@ -566,6 +645,10 @@ main()
                 open "https://dictionary.cambridge.org/dictionary/english/$encoded" >/dev/null 2>&1
             fi
         fi
+        exit 1
+    fi
+    if ! ensure_anki_connect; then
+        echo "无法连接 Anki Connect，请确认 Anki 已启动并启用 AnkiConnect。"
         exit 1
     fi
     if note_exists; then
