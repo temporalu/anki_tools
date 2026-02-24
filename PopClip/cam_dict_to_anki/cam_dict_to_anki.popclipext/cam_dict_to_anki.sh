@@ -38,6 +38,17 @@ print(quote(text, safe="-"))
 PY
 }
 
+url_encode_query()
+{
+    python3 - "$1" <<'PY'
+import sys
+from urllib.parse import quote_plus
+
+text = sys.argv[1] if len(sys.argv) > 1 else ""
+print(quote_plus(text))
+PY
+}
+
 update_entry()
 {
     entry=$1
@@ -86,7 +97,7 @@ has_option_key()
         echo "0"
         return 0
     fi
-    if (( (flags & 524288) != 0 )); then
+    if (( (flags & 524288) != 0 || (flags & 32) != 0 || (flags & 64) != 0 )); then
         echo "1"
     else
         echo "0"
@@ -507,7 +518,7 @@ field = sys.argv[2]
 value = sys.argv[3]
 def esc(s):
     return s.replace('"', '\\"')
-query = f'deck:"{esc(deck)}" "{esc(field)}":"{esc(value)}"'
+query = f'deck:"{esc(deck)}" {esc(field)}:"{esc(value)}"'
 print(query)
 PY
 )
@@ -515,25 +526,25 @@ PY
     payload=$(cat <<EOF
 {
   "action": "findNotes",
-  "version": 5,
+  "version": 6,
   "params": {
     "query": "$escaped_query"
   }
 }
 EOF
 )
-    res=$(curl -sX POST -d "$payload" "localhost:8765")
+    res=$(curl -sX POST -d "$payload" "http://localhost:8765")
     python3 - "$res" <<'PY'
 import json,sys
-raw = sys.argv[1]
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
 if not raw:
-    sys.exit(1)
+    sys.exit(2)
 try:
     data = json.loads(raw)
 except Exception:
-    sys.exit(1)
+    sys.exit(2)
 if data.get("error") is not None:
-    sys.exit(1)
+    sys.exit(2)
 result = data.get("result") or []
 sys.exit(0 if len(result) > 0 else 1)
 PY
@@ -582,22 +593,25 @@ check_result()
 {
     local resp=$1
     local definition=$2
-    if [[ $resp != *'"error": null'* ]]; then
-        if [[ $resp = "null" ]]; then
-            msg="Invalid post data for AnkiConnect"
-        else
-            msg=$(echo "$resp" | perl -pe 's/^.*?(?<="error": ")(.*?[^\\])(?=[\."]).*?$/$1/' | sed -e 's/^"//' -e 's/"$//')
-        fi
-        if [[ -z "$resp" ]]; then
-            msg="Did you open anki?"
-        fi
-        if [[ -n "$msg" ]]; then
-            echo "$msg"
-        fi
-        exit 1
-    else
-        exit 0
-    fi
+    python3 - "$resp" <<'PY'
+import json
+import sys
+
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
+if not raw:
+    print("Did you open anki?")
+    sys.exit(1)
+try:
+    data = json.loads(raw)
+except Exception:
+    print("Invalid response from AnkiConnect")
+    sys.exit(1)
+err = data.get("error")
+if err:
+    print(err)
+    sys.exit(1)
+sys.exit(0)
+PY
 }
 
 
@@ -640,9 +654,9 @@ main()
             fi
         fi
         if [[ "$skip_open_on_fail" != "1" && "$user_cancelled" != "1" && -n "$entry" ]]; then
-            encoded=$(url_encode "$entry")
+            encoded=$(url_encode_query "$entry")
             if [[ -n "$encoded" ]]; then
-                open "https://dictionary.cambridge.org/dictionary/english/$encoded" >/dev/null 2>&1
+                open "https://dictionary.cambridge.org/spellcheck/english/?q=$encoded" >/dev/null 2>&1
             fi
         fi
         exit 1
@@ -651,8 +665,14 @@ main()
         echo "无法连接 Anki Connect，请确认 Anki 已启动并启用 AnkiConnect。"
         exit 1
     fi
-    if note_exists; then
+    note_exists
+    note_status=$?
+    if (( note_status == 0 )); then
         exit 0
+    fi
+    if (( note_status == 2 )); then
+        echo "查询重复卡片失败，请确认 AnkiConnect 正常工作。"
+        exit 1
     fi
     definition=$(store_images "$definition")
     payload=$(gen_post_data "$definition")
