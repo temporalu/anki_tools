@@ -106,6 +106,9 @@ class CambridgeParser(HTMLParser):
                     target = self.examp_text if self.examp_depth > 0 else self.def_text
                     target.append("<i>")
                     self.span_stack.append("i")
+                elif self.examp_depth > 0 and ("lu" in classes or "dlu" in classes):
+                    self.examp_text.append("<b>")
+                    self.span_stack.append("b")
                 else:
                     self.span_stack.append("")
         if self.pos_depth > 0:
